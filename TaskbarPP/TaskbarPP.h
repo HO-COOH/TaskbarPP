@@ -27,15 +27,33 @@ enum class JumpListItemKind
 enum class JumpListGroupKind
 {
 	Frequent,
-	None,
+	Custom,
 	Recent
+};
+
+class WinError
+{
+	HRESULT m_code;
+public:
+	constexpr WinError(HRESULT code) : m_code{ code } {}
+
+	static void ThrowIfError(HRESULT result)
+	{
+		if (result != S_OK)
+			throw WinError{ result };
+	}
+
+	constexpr operator HRESULT()
+	{
+		return m_code;
+	}
 };
 
 class JumpListItem
 {
 	CComPtr<IShellLinkW> link;
 	int m_index{};
-	JumpListGroupKind kind = JumpListGroupKind::None;
+	JumpListGroupKind kind = JumpListGroupKind::Custom;
 	std::wstring m_group;
 	
 	auto getPropertyStore()
@@ -52,6 +70,11 @@ class JumpListItem
 		link->GetIDList(&list);
 		return list;
 	}
+
+	static inline void RemoveTrailingNull(std::wstring& src)
+	{
+		src.erase(std::find(src.begin(), src.end(), L'\0'), src.end());
+	}
 public:
 	JumpListItem()
 	{
@@ -62,6 +85,7 @@ public:
 	{
 		std::wstring arguments(INFOTIPSIZE, {});
 		link->GetArguments(&arguments[0], INFOTIPSIZE);
+		RemoveTrailingNull(arguments);
 		return arguments;
 	}
 
@@ -80,6 +104,7 @@ public:
 	{
 		std::wstring description(INFOTIPSIZE, {});
 		link->GetDescription(&description[0], description.size());
+		RemoveTrailingNull(description);
 		return description;
 	}
 
@@ -105,11 +130,15 @@ public:
 
 	std::wstring GroupName() const
 	{
-
+		return m_group;
 	}
 	void GroupName(std::wstring_view groupName)
 	{
-
+		m_group = groupName;
+	}
+	void GroupName(std::wstring&& groupName)
+	{
+		m_group = std::move(groupName);
 	}
 
 	JumpListItemKind Kind() const;
@@ -258,7 +287,23 @@ public:
 	JumpList& operator+=(JumpListItem&& item)
 	{
 		newList[item.GroupName()].push_back(std::move(item));
-		//newList.push_back();
+		return *this;
+	}
+
+	JumpList& operator+=(JumpListGroupKind kind)
+	{
+		CComPtr<ICustomDestinationList> plist;
+		auto hr = plist.CoCreateInstance(CLSID_DestinationList, nullptr);
+
+		switch (kind)
+		{
+			case JumpListGroupKind::Recent:
+				plist->AppendKnownCategory(KDC_RECENT);
+				break;
+			case JumpListGroupKind::Frequent:
+				plist->AppendKnownCategory(KDC_FREQUENT);
+				break;
+		}
 		return *this;
 	}
 
@@ -290,16 +335,24 @@ public:
 
 		/*Build the list*/
 		{
-			CComPtr<IObjectCollection> pObjectCollection;
-			pObjectCollection.CoCreateInstance(CLSID_EnumerableObjectCollection);
-			for (auto const& item : newList)
-			{
-				pObjectCollection->AddObject(item.link.p);
-			}
 
-			CComPtr<IObjectArray> pArray;
-			pObjectCollection->QueryInterface(IID_PPV_ARGS(&pArray));
-			plist->AddUserTasks(pArray);
+			for (auto const& groupPair : newList) //groupPair is pair of groupName <=> items
+			{
+				CComPtr<IObjectCollection> pObjectCollection;
+				pObjectCollection.CoCreateInstance(CLSID_EnumerableObjectCollection);
+
+				
+				for (auto const& groupItem : groupPair.second)
+				{
+					pObjectCollection->AddObject(groupItem.link.p);
+				}
+
+				CComPtr<IObjectArray> pArray;
+				pObjectCollection->QueryInterface(IID_PPV_ARGS(&pArray));
+				plist->AddUserTasks(pArray);
+
+				plist->AppendCategory(groupPair.first.data(), pArray);
+			}
 		}
 
 		plist->CommitList();

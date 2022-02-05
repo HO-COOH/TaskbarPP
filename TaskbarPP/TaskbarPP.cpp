@@ -38,7 +38,8 @@ TEST(Property, EmptyDisplayName)
 
 TEST(Property, Arguments)
 {
-
+	auto item = JumpListItem::CreateWithArguments(L"910", L"newTask4");
+	EXPECT_EQ(item.Arguments(), L"910");
 }
 
 static void InitializeEnvironment()
@@ -48,12 +49,14 @@ static void InitializeEnvironment()
 	list += JumpListItem::CreateWithArguments(L"12", L"newTask");
 	list += JumpListItem::CreateSeparator();
 	list += JumpListItem::CreateWithArguments(L"34", L"newTask2");
+	list += JumpListGroupKind::Frequent;
+	list += JumpListGroupKind::Recent;
 	list.SaveAsync();
 
-	ObjectArray<IApplicationDocumentLists> items[]{
+	ObjectArray<IApplicationDocumentLists> items[]
+	{
 		list.Items<JumpListGroupKind::Frequent>(),
 		list.Items<JumpListGroupKind::Recent>(),
-		list.Items<JumpListGroupKind::None>()
 	};
 	for (auto& item : items)
 		std::cout << item.size() << '\n';
@@ -65,6 +68,7 @@ int main(int argc, char** argv)
 {
 	InitializeEnvironment();
 	::testing::InitGoogleTest(&argc, argv);
+	S_OK;
 	return RUN_ALL_TESTS();
 }
 
